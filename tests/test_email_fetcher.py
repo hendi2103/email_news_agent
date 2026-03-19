@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from email_fetcher import fetch_unseen_emails, parse_email_content
+from src.email_news_agent.email_fetcher import fetch_unseen_emails, parse_email_content
 
 
 # ---------------------------------------------------------------------------
