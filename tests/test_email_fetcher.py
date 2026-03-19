@@ -14,7 +14,8 @@ import imaplib
 from email_news_agent import email_fetcher, analyze_mail
 
 # Use the user's Ollama model; allow override via environment variable
-MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
+MODEL = 'llama3.2:3b'  # default model for testing
+
 
 
 def _make_email(subject: str, sender: str, date: str, body: str, html: bool = False) -> bytes:
@@ -147,12 +148,16 @@ def test_fetch_and_analyze_5_mock_emails(monkeypatch, capsys):
     for e in emails:
         # pass the body to analyze_relevance (this will call the real ollama.chat)
         res = analyze_mail.analyze_relevance(e["body"], model=MODEL)
+        res["sender"] = e["sender"]
+        res["sent_date"] = e["date"]
+        res["subject"] = e["subject"]
+
         results.append(res)
         print(json.dumps(res, ensure_ascii=False, indent=2))
 
     # basic sanity checks
     assert all(isinstance(r, dict) for r in results)
-    assert any(r["category"] == "event announcement" for r in results), "At least one event announcement expected"
+    assert any(r["category"] == "event" for r in results), "At least one event announcement expected"
 
 
 if __name__ == "__main__":

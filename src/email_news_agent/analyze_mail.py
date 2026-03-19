@@ -1,27 +1,54 @@
 import json
 import ollama
+from pydantic import BaseModel
 
 
-def analyze_relevance(content: str, model: str = 'llama3') -> dict:
+class MailContent(BaseModel):
+    category: str
+    original_sender: str | None
+    original_sent_date: str | None
+    heading: str
+    summary: str
+    event_date: str | None
+    event_time: str | None
+    event_location: str | None
+    link_to_event: str | None
+    registration_info: str | None
+
+
+def test_ollama_chat():
+    # Try to contact the real Ollama service once; if it fails, skip the test
+    try:
+        response = ollama.chat(model="llama3.2:3b", messages=[{"role": "user", "content": "ping"}])
+        assert "message" in response and "content" in response["message"], "Response should contain 'message' with 'content'"
+        print("Ollama chat test passed. Response content:", response["message"]["content"])
+        for e in response: print(e)
+    except Exception as e:
+        print(f"Ollama chat test failed: {e}")
+        assert False, f"Ollama not available or model not loaded: {e}"
+
+def analyze_relevance(content: str, model: str = 'event_agent:latest') -> dict:
     """Analyzes and summarizes email content and returns a JSON dict."""
-    prompt = (
-        "You are an email analysis assistant. Analyze the following email content and extract structured information.\n\n"
-        "Categorize the email as either 'event announcement' or 'general information'.\n\n"
-        "Return ONLY a valid JSON object with these exact keys in the following order:\n"
-        "- category: 'event announcement' or 'general information'\n"
-        "- sender: the sender's name and/or email address\n"
-        "- original_sender: the original sender if the email was forwarded, otherwise null\n"
-        "- date: the date the email was sent (as a string)\n"
-        "- original_date: the original date if the email was forwarded, otherwise null\n"
-        "- summary: a concise summary of the email content (maximum 320 characters)\n"
-        "- event_date: the date of the event if applicable, otherwise null\n"
-        "- event_time: the time of the event if applicable, otherwise null\n"
-        "- event_location: the location of the event if applicable, otherwise null\n"
-        "- link_to_event: a URL link to the event if available, otherwise null\n"
-        "- registration_information: registration details or deadline if available, otherwise null\n\n"
-        "Email content:\n"
-        f"{content}\n\n"
-        "Respond with only the JSON object, no additional text. Do not omit any keys, even if their values are null. Ensure the JSON is properly formatted and valid."
+    prompt = (f"""Du bist ein E-Mail-Analyse-Assistent. Analysiere den folgenden E-Mail-Inhalt und extrahiere strukturierte Informationen.
+
+Kategorisiere die E-Mail entweder als 'event' oder 'information'.
+Verwende die folgenden Felder, um die Informationen zu extrahieren: 
+
+
+- category: 'event' oder 'information'
+- original_sender: Name und E-Mail-Adresse de ursprünglichen Absenders, wenn die E-Mail weitergeleitet wurde oder null, wenn nicht weitergeleitet
+- original_sent_date: das ursprüngliche Datum, wenn die E-Mail weitergeleitet wurde, oder null, wenn nicht weitergeleitet
+- heading: eine Überschrift, die den Inhalt der E-Mail zusammenfasst (maximal 80 Zeichen)
+- summary: eine Zusammenfassung des E-Mail-Inhalts (maximal 320 Zeichen)
+- event_date: das Datum der Veranstaltung, oder null, wenn nicht angegeben
+- event_time: die Uhrzeit der Veranstaltung, oder null, wenn nicht angegeben
+- event_location: der Ort der Veranstaltung, oder null, wenn nicht angegeben
+- link_to_event: ein URL-Link zur Veranstaltung, oder null, wenn nicht angegeben
+- registration_information: Angaben zur Anmeldung, Fristen, und Kosten, oder null, wenn nicht angegeben
+  
+Email-Inhalt:      
+  
+{content}"""
     )
 
     try:
@@ -29,33 +56,22 @@ def analyze_relevance(content: str, model: str = 'llama3') -> dict:
             model=model,
             messages=[
                 {"role": "user", "content": prompt}
-            ]
+            ],
+            format = MailContent.model_json_schema()
         )
+        try:
+            mail_content_model = MailContent.model_validate_json(response.message.content)
+            result = mail_content_model.model_dump()
+        except Exception as e:
+            raise ValueError(
+                f"Failed to validate LLM JSON against MailContent: {e}\nRaw: {raw_json!r}") from e
+
     except Exception as e:
         raise RuntimeError(
             f"Failed to contact Ollama service or load model '{model}': {e}"
         ) from e
 
-    response_text = response["message"]["content"].strip()
-
-    # Extract JSON from the response, handling cases where the model
-    # may wrap the JSON in markdown code fences
-    if "```" in response_text:
-        start = response_text.find("{")
-        end = response_text.rfind("}") + 1
-        if start != -1 and end > start:
-            response_text = response_text[start:end]
-
-    try:
-        result = json.loads(response_text)
-    except json.JSONDecodeError as e:
-        raise ValueError(
-            f"LLM returned a response that could not be parsed as JSON: {e}\n"
-            f"Response was: {response_text}"
-        ) from e
-
-    # Enforce summary length limit
-    if "summary" in result and result["summary"] and len(result["summary"]) > 320:
-        result["summary"] = result["summary"][:320]
 
     return result
+
+

@@ -66,22 +66,8 @@ def _decode_header_value(value: str) -> str:
     return " ".join(decoded_parts)
 
 
-def _extract_forwarded_sender(body: str) -> str | None:
-    """Try to extract the original sender from a forwarded email body."""
-    patterns = [
-        r"From:\s*(.+?)(?:\n|$)",
-        r"Von:\s*(.+?)(?:\n|$)",
-        r"-+\s*Forwarded [Mm]essage\s*-+.*?From:\s*(.+?)(?:\n|$)",
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, body, re.IGNORECASE | re.DOTALL)
-        if match:
-            return match.group(1).strip()
-    return None
-
-
 def parse_email_content(msg) -> dict:
-    """Extract the content, date, sender, and original sender in case of forwarded emails.
+    """Extract the content, date, sender, of emails.
 
     Args:
         msg: An :class:`email.message.Message` object to parse.
@@ -132,24 +118,9 @@ def parse_email_content(msg) -> dict:
             charset = msg.get_content_charset() or "utf-8"
             body = payload.decode(charset, errors="replace")
 
-    subject_lower = subject.lower()
-    body_lower = body.lower()
-    is_forwarded = (
-        subject_lower.startswith("fwd:")
-        or subject_lower.startswith("fw:")
-        or "-------- forwarded message" in body_lower
-        or "---------- forwarded message" in body_lower
-    )
-
-    original_sender = None
-    if is_forwarded:
-        original_sender = _extract_forwarded_sender(body)
-
     return {
         "subject": subject,
         "sender": sender,
         "date": date,
-        "body": body,
-        "is_forwarded": is_forwarded,
-        "original_sender": original_sender,
+        "body": body
     }
