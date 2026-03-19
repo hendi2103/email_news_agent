@@ -146,8 +146,8 @@ def test_fetch_and_analyze_5_mock_emails(monkeypatch, capsys):
 
     results = []
     for e in emails:
-        # pass the body to analyze_relevance (this will call the real ollama.chat)
-        res = analyze_mail.analyze_relevance(e["body"], model=MODEL)
+        # pass the body to analyze_mail (this will call the real ollama.chat)
+        res = analyze_mail.analyze_mail(e["body"], model=MODEL)
         res["sender"] = e["sender"]
         res["sent_date"] = e["date"]
         res["subject"] = e["subject"]
