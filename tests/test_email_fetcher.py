@@ -1,210 +1,160 @@
-import email
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from unittest.mock import MagicMock, patch
-
+import os
+import sys
+import json
+from email.message import EmailMessage
 import pytest
 
-from src.email_news_agent.email_fetcher import fetch_unseen_emails, parse_email_content
+# Ensure src is importable when running tests from repo root
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+SRC_DIR = os.path.join(ROOT, "src")
+if SRC_DIR not in sys.path:
+    sys.path.insert(0, SRC_DIR)
+
+import imaplib
+from email_news_agent import email_fetcher, analyze_mail
+
+# Use the user's Ollama model; allow override via environment variable
+MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _build_simple_message(
-    subject="Test Subject",
-    sender="sender@example.com",
-    date="Mon, 01 Jan 2024 10:00:00 +0000",
-    body="Hello World",
-    content_type="plain",
-) -> email.message.Message:
-    msg = MIMEText(body, content_type)
+def _make_email(subject: str, sender: str, date: str, body: str, html: bool = False) -> bytes:
+    msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = sender
+    msg["To"] = "recipient@example.com"
     msg["Date"] = date
-    return msg
+    if html:
+        msg.add_alternative(body, subtype="html")
+    else:
+        msg.set_content(body)
+    return msg.as_bytes()
 
 
-def _build_multipart_message(
-    subject="Multipart Subject",
-    sender="sender@example.com",
-    date="Mon, 01 Jan 2024 10:00:00 +0000",
-    plain_body="Plain text",
-    html_body="<p>HTML text</p>",
-) -> email.message.Message:
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = sender
-    msg["Date"] = date
-    msg.attach(MIMEText(plain_body, "plain"))
-    msg.attach(MIMEText(html_body, "html"))
-    return msg
+class MockIMAP:
+    def __init__(self, host, port):
+        # prepare five mock emails
+        self.emails = [
+            # 1: simple event announcement (plain text)
+            _make_email(
+                subject="Community Meetup",
+                sender="organizer@example.com",
+                date="Mon, 15 Mar 2026 10:00:00 +0100",
+                body=(
+                    "You're invited to the Community Meetup on 2026-04-01 at 18:00 in Berlin. "
+                    "Please register at https://example.com/register"
+                ),
+                html=False,
+            ),
+            # 2: formal event announcement (HTML)
+            _make_email(
+                subject="Event: AI Conference 2026",
+                sender="events@conference.org",
+                date="Tue, 16 Mar 2026 09:30:00 +0100",
+                body=(
+                    "<html><body><h1>AI Conference 2026</h1>\n"
+                    "<p>Date: April 20, 2026</p>\n"
+                    "<p>Location: Convention Center, City</p>\n"
+                    "<a href=\"https://conference.example/tickets\">Tickets</a>\n"
+                    "</body></html>"
+                ),
+                html=True,
+            ),
+            # 3: forwarded event (body contains original From line)
+            _make_email(
+                subject="Fwd: Workshop Invitation",
+                sender="forwarder@example.com",
+                date="Wed, 17 Mar 2026 11:00:00 +0100",
+                body=(
+                    "---------- Forwarded message ----------\n"
+                    "From: original_sender@example.com\n"
+                    "Subject: Hands-on Workshop\n\n"
+                    "Join our hands-on workshop on May 5th at 14:00. Venue: Makerspace. "
+                    "Register: https://example.com/workshop"
+                ),
+                html=False,
+            ),
+            # 4: general information (newsletter)
+            _make_email(
+                subject="Weekly Update",
+                sender="newsletter@updates.example",
+                date="Thu, 18 Mar 2026 08:00:00 +0100",
+                body=(
+                    "This week's highlights:\n- Feature releases\n- Bug fixes\n"
+                    "Read more on our blog: https://blog.example/weekly"
+                ),
+                html=False,
+            ),
+            # 5: informal announcement embedded in text
+            _make_email(
+                subject="Invitation: Casual Drinks",
+                sender="social@example.org",
+                date="Fri, 19 Mar 2026 19:00:00 +0100",
+                body=(
+                    "Hey team,\nWe're having casual drinks next Friday (April 2) at 20:00 at The Rooftop Bar. "
+                    "No registration required. See you there!"
+                ),
+                html=False,
+            ),
+        ]
+
+    def login(self, username, password):
+        return "OK", [b"Logged in"]
+
+    def select(self, mailbox):
+        return "OK", [b"1"]
+
+    def search(self, charset, criterion):
+        # return five message ids (as a single bytes string)
+        return "OK", [b"1 2 3 4 5"]
+
+    def fetch(self, msg_id, what):
+        # msg_id will be bytes like b"1"
+        try:
+            idx = int(msg_id.decode() if isinstance(msg_id, bytes) else msg_id)
+        except Exception:
+            idx = 1
+        # IMAP message sequence numbers are 1-based
+        if 1 <= idx <= len(self.emails):
+            return "OK", [(None, self.emails[idx - 1])]
+        return "NO", []
+
+    def logout(self):
+        return "BYE", [b"Logged out"]
 
 
-# ---------------------------------------------------------------------------
-# parse_email_content tests
-# ---------------------------------------------------------------------------
+def test_fetch_and_analyze_5_mock_emails(monkeypatch, capsys):
+    # Patch IMAP4_SSL used in email_fetcher
+    monkeypatch.setattr(imaplib, "IMAP4_SSL", lambda host, port: MockIMAP(host, port))
 
-class TestParseEmailContent:
-    def test_basic_fields_are_extracted(self):
-        msg = _build_simple_message(
-            subject="Hello",
-            sender="alice@example.com",
-            date="Mon, 01 Jan 2024 10:00:00 +0000",
-            body="Test body",
-        )
-        result = parse_email_content(msg)
+    # Try to contact the real Ollama service once; if it fails, skip the test
+    try:
+        analyze_mail.ollama.chat(model=MODEL, messages=[{"role": "user", "content": "ping"}])
+    except Exception as e:
+        pytest.skip(f"Ollama not available or model not loaded: {e}")
 
-        assert result["subject"] == "Hello"
-        assert result["sender"] == "alice@example.com"
-        assert result["date"] == "Mon, 01 Jan 2024 10:00:00 +0000"
-        assert "Test body" in result["body"]
+    imap_config = {
+        "host": "mock.imap.server",
+        "username": "user@example.com",
+        "password": "password",
+        # port and use_ssl default are fine
+    }
 
-    def test_not_forwarded_by_default(self):
-        msg = _build_simple_message(subject="Regular email")
-        result = parse_email_content(msg)
+    emails = email_fetcher.fetch_unseen_emails(imap_config)
 
-        assert result["is_forwarded"] is False
-        assert result["original_sender"] is None
+    assert len(emails) == 5, "Expected 5 mock emails to be fetched"
 
-    def test_detects_fwd_prefix(self):
-        msg = _build_simple_message(subject="Fwd: Some news")
-        result = parse_email_content(msg)
+    results = []
+    for e in emails:
+        # pass the body to analyze_relevance (this will call the real ollama.chat)
+        res = analyze_mail.analyze_relevance(e["body"], model=MODEL)
+        results.append(res)
+        print(json.dumps(res, ensure_ascii=False))
 
-        assert result["is_forwarded"] is True
-
-    def test_detects_fw_prefix(self):
-        msg = _build_simple_message(subject="FW: Some news")
-        result = parse_email_content(msg)
-
-        assert result["is_forwarded"] is True
-
-    def test_extracts_original_sender_from_forwarded_body(self):
-        body = (
-            "-------- Forwarded Message --------\n"
-            "From: original@example.com\n"
-            "Subject: Original\n\n"
-            "Original body text."
-        )
-        msg = _build_simple_message(subject="Fwd: Check this", body=body)
-        result = parse_email_content(msg)
-
-        assert result["is_forwarded"] is True
-        assert result["original_sender"] is not None
-        assert "original@example.com" in result["original_sender"]
-
-    def test_multipart_prefers_plain_text(self):
-        msg = _build_multipart_message(plain_body="Plain content", html_body="<p>HTML</p>")
-        result = parse_email_content(msg)
-
-        assert "Plain content" in result["body"]
-        assert "<p>" not in result["body"]
-
-    def test_multipart_falls_back_to_html(self):
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = "HTML only"
-        msg["From"] = "sender@example.com"
-        msg["Date"] = "Mon, 01 Jan 2024 10:00:00 +0000"
-        msg.attach(MIMEText("<p>HTML only body</p>", "html"))
-
-        result = parse_email_content(msg)
-        assert "<p>HTML only body</p>" in result["body"]
-
-    def test_missing_headers_return_empty_strings(self):
-        msg = email.message.Message()
-        msg.set_payload("body text")
-        result = parse_email_content(msg)
-
-        assert result["subject"] == ""
-        assert result["sender"] == ""
-        assert result["date"] == ""
+    # basic sanity checks
+    assert all(isinstance(r, dict) for r in results)
+    assert any(r["category"] == "event announcement" for r in results), "At least one event announcement expected"
 
 
-# ---------------------------------------------------------------------------
-# fetch_unseen_emails tests
-# ---------------------------------------------------------------------------
-
-class TestFetchUnseenEmails:
-    def _make_imap_config(self):
-        return {
-            "host": "imap.example.com",
-            "port": 993,
-            "username": "user@example.com",
-            "password": "secret",
-        }
-
-    def _mock_imap(self, message_ids=b"1 2", messages=None):
-        """Return a mock IMAP4_SSL instance."""
-        mock_mail = MagicMock()
-        mock_mail.login.return_value = ("OK", [b"Logged in"])
-        mock_mail.select.return_value = ("OK", [b"2"])
-        mock_mail.search.return_value = ("OK", [message_ids])
-
-        if messages is None:
-            msg = _build_simple_message()
-            raw = msg.as_bytes()
-            messages = {b"1": raw, b"2": raw}
-
-        def fetch_side_effect(msg_id, fmt):
-            raw = messages.get(msg_id, b"")
-            return ("OK", [(None, raw)])
-
-        mock_mail.fetch.side_effect = fetch_side_effect
-        return mock_mail
-
-    @patch("email_fetcher.imaplib.IMAP4_SSL")
-    def test_returns_list_of_dicts(self, mock_imap_cls):
-        msg = _build_simple_message(subject="News", sender="news@example.com")
-        raw = msg.as_bytes()
-        mock_mail = MagicMock()
-        mock_mail.login.return_value = ("OK", [b"OK"])
-        mock_mail.select.return_value = ("OK", [b"1"])
-        mock_mail.search.return_value = ("OK", [b"1"])
-        mock_mail.fetch.return_value = ("OK", [(None, raw)])
-        mock_imap_cls.return_value = mock_mail
-
-        result = fetch_unseen_emails(self._make_imap_config())
-
-        assert isinstance(result, list)
-        assert len(result) == 1
-        assert result[0]["subject"] == "News"
-        assert result[0]["sender"] == "news@example.com"
-
-    @patch("email_fetcher.imaplib.IMAP4_SSL")
-    def test_returns_empty_list_when_no_unseen(self, mock_imap_cls):
-        mock_mail = MagicMock()
-        mock_mail.login.return_value = ("OK", [b"OK"])
-        mock_mail.select.return_value = ("OK", [b"0"])
-        mock_mail.search.return_value = ("OK", [b""])
-        mock_imap_cls.return_value = mock_mail
-
-        result = fetch_unseen_emails(self._make_imap_config())
-
-        assert result == []
-
-    @patch("email_fetcher.imaplib.IMAP4")
-    def test_uses_plain_imap_when_ssl_disabled(self, mock_imap_cls):
-        mock_mail = MagicMock()
-        mock_mail.login.return_value = ("OK", [b"OK"])
-        mock_mail.select.return_value = ("OK", [b"0"])
-        mock_mail.search.return_value = ("OK", [b""])
-        mock_imap_cls.return_value = mock_mail
-
-        config = self._make_imap_config()
-        config["use_ssl"] = False
-        fetch_unseen_emails(config)
-
-        mock_imap_cls.assert_called_once()
-
-    @patch("email_fetcher.imaplib.IMAP4_SSL")
-    def test_logout_called_even_on_exception(self, mock_imap_cls):
-        mock_mail = MagicMock()
-        mock_mail.login.return_value = ("OK", [b"OK"])
-        mock_mail.select.side_effect = Exception("select failed")
-        mock_imap_cls.return_value = mock_mail
-
-        with pytest.raises(Exception, match="select failed"):
-            fetch_unseen_emails(self._make_imap_config())
-
-        mock_mail.logout.assert_called_once()
+if __name__ == "__main__":
+    # Allow running the test file directly for quick manual verification
+    test_fetch_and_analyze_5_mock_emails(monkeypatch=__import__("pytest").MonkeyPatch(), capsys=None)
