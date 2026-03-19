@@ -148,7 +148,7 @@ def test_fetch_and_analyze_5_mock_emails(monkeypatch, capsys):
         # pass the body to analyze_relevance (this will call the real ollama.chat)
         res = analyze_mail.analyze_relevance(e["body"], model=MODEL)
         results.append(res)
-        print(json.dumps(res, ensure_ascii=False))
+        print(json.dumps(res, ensure_ascii=False, indent=2))
 
     # basic sanity checks
     assert all(isinstance(r, dict) for r in results)

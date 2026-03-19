@@ -7,7 +7,7 @@ def analyze_relevance(content: str, model: str = 'llama3') -> dict:
     prompt = (
         "You are an email analysis assistant. Analyze the following email content and extract structured information.\n\n"
         "Categorize the email as either 'event announcement' or 'general information'.\n\n"
-        "Return ONLY a valid JSON object with these exact keys:\n"
+        "Return ONLY a valid JSON object with these exact keys in the following order:\n"
         "- category: 'event announcement' or 'general information'\n"
         "- sender: the sender's name and/or email address\n"
         "- original_sender: the original sender if the email was forwarded, otherwise null\n"
@@ -21,7 +21,7 @@ def analyze_relevance(content: str, model: str = 'llama3') -> dict:
         "- registration_information: registration details or deadline if available, otherwise null\n\n"
         "Email content:\n"
         f"{content}\n\n"
-        "Respond with only the JSON object, no additional text."
+        "Respond with only the JSON object, no additional text. Do not omit any keys, even if their values are null. Ensure the JSON is properly formatted and valid."
     )
 
     try:
