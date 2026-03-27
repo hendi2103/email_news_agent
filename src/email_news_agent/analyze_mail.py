@@ -27,7 +27,7 @@ def test_ollama_chat():
         print(f"Ollama chat test failed: {e}")
         assert False, f"Ollama not available or model not loaded: {e}"
 
-def analyze_mail(content: str, model: str = 'event_agent:latest') -> dict:
+def analyze_mail(content: str, model: str = 'llama3.2:3b') -> dict:
     """Analyzes and summarizes email content and returns a JSON dict."""
     prompt = (f"""Du bist ein E-Mail-Analyse-Assistent. Analysiere den folgenden E-Mail-Inhalt und extrahiere strukturierte Informationen.
 
