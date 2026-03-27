@@ -92,10 +92,19 @@ def build_newsletter_html(records: Iterable[Dict[str, Any]]) -> str:
             event_meta_parts.append(html.escape(str(r.get("event_location"))))
         meta = " — ".join([p for p in event_meta_parts if p])
 
+        # Unterstützung für mehrere Links, getrennt durch Semikolon
         link_html = ""
-        if r.get("link_to_event"):
-            link = html.escape(str(r.get("link_to_event")))
-            link_html = f'<p><a href="{link}">{link}</a></p>'
+        raw_links = r.get("link_to_event")
+        if raw_links:
+            # Sicherstellen, dass wir einen String haben, dann auf ';' splitten
+            links = [s.strip() for s in str(raw_links).split(";") if s.strip()]
+            if links:
+                list_items = []
+                for link in links:
+                    esc = html.escape(link)
+                    list_items.append(f'<li style="margin-bottom:4px;"><a href="{esc}">{esc}</a></li>')
+                link_html = "<p style=\"margin:6px 0 4px 0;\"><strong>Links:</strong></p><ul style=\"margin:0 0 8px 16px;padding:0;\">"
+                link_html += "".join(list_items) + "</ul>"
 
         registration_html = ""
         if r.get("registration_info"):
