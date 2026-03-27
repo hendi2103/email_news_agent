@@ -167,14 +167,17 @@ def run_newsletter(
         subject = "Newsletter — Neuigkeiten & Veranstaltungen"
 
     print(f"Sende Newsletter an {to_email} (Einträge: {len(records)})...")
-    # Use email_handler.send_email which accepts smtp_config and supports auth & port
-    email_handler.send_email(
-        smtp_config=(smtp_config or {}),
+    # Pass smtp_config through as provided; when None, send_email will load stored config.
+    success = email_handler.send_email(
+        smtp_config=smtp_config,
         to=to_email,
         subject=subject,
         content="Dieser Newsletter enthält HTML-Inhalte. Bitte in einem HTML-fähigen Client öffnen.",
-        html_content=html_body,
+        html_content=html_body
     )
+    if not success:
+        print("Fehler: Newsletter-Versand fehlgeschlagen.")
+        return False
     print("Newsletter versendet.")
     return True
 
