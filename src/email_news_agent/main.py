@@ -4,7 +4,7 @@ import sys
 import textwrap
 from typing import Any
 
-from email_news_agent import email_fetcher, analyze_mail, email_storage
+from email_news_agent import email_handler, analyze_mail, email_storage
 
 
 def _shorten(text: str | None, limit: int) -> str | None:
@@ -24,14 +24,14 @@ def main(model: str = "llama3.2:3b") -> int:
     """
     print("Lade IMAP-Konfiguration...")
     try:
-        cfg = email_fetcher.load_imap_config()
+        cfg = email_handler.load_imap_config()
     except Exception as e:
         print(f"Fehler beim Laden der IMAP-Konfiguration: {e}")
         return 2
 
     print("Hole ungelesene E-Mails...")
     try:
-        mails = email_fetcher.fetch_unseen_emails(cfg)
+        mails = email_handler.fetch_unseen_emails(cfg)
     except Exception as e:
         print(f"Fehler beim Abrufen von E-Mails: {e}")
         return 3
@@ -93,7 +93,7 @@ def main(model: str = "llama3.2:3b") -> int:
         """))
 
     print("Fertig.")
-    return
+    return 0
 
 
 if __name__ == "__main__":
