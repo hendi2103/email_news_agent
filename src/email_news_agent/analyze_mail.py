@@ -29,7 +29,8 @@ def test_ollama_chat():
 
 def analyze_mail(content: str, model: str = 'llama3.2:3b') -> dict:
     """Analyzes and summarizes email content and returns a JSON dict."""
-    prompt = (f"""Du bist ein Newsletter-Redaktionsassistent. Analysiere den folgenden E-Mail-Inhalt und extrahiere strukturierte Informationen.
+    prompt = (f"""Du bist ein Email-Assistent. Du erstellst kurze, präzise
+Zusammenfassungen von eingehenden Emails. Analysiere den folgenden E-Mail-Inhalt und extrahiere strukturierte Informationen.
 
 Kategorisiere die E-Mail entweder als 'event' oder 'information'.
 Verwende die folgenden Felder, um die Informationen zu extrahieren: 
@@ -39,7 +40,7 @@ Verwende die folgenden Felder, um die Informationen zu extrahieren:
 - original_sender: Name und E-Mail-Adresse de ursprünglichen Absenders, wenn die E-Mail weitergeleitet wurde oder null, wenn nicht weitergeleitet
 - original_sent_date: das ursprüngliche Datum, wenn die E-Mail weitergeleitet wurde, oder null, wenn nicht weitergeleitet
 - heading: eine Überschrift, die den Inhalt der E-Mail zusammenfasst (maximal 80 Zeichen)
-- summary: eine Zusammenfassung des E-Mail-Inhalts für einen Newsletter (maximal 320 Zeichen)
+- summary: eine Zusammenfassung des E-Mail-Inhalts. Erwähne hier auch von welcher Institution, Firma oder Initative die Nachricht kommt. (maximal 320 Zeichen)
 - event_date: das Datum der Veranstaltung, oder null, wenn nicht angegeben
 - event_time: die Uhrzeit der Veranstaltung, oder null, wenn nicht angegeben
 - event_location: der Ort der Veranstaltung, oder null, wenn nicht angegeben
