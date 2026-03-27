@@ -17,6 +17,8 @@ import stat
 from pathlib import Path
 import getpass
 from typing import Any, Dict, Optional
+import re
+import html as _html_module
 
 import smtplib
 from email.message import EmailMessage
@@ -258,59 +260,117 @@ def _decode_header_value(value: str) -> str:
     return " ".join(decoded_parts)
 
 
+def _html_to_text(html_text: str) -> str:
+    """Rudimentäre HTML->Text Konvertierung: Scripts/Styles entfernen, Tags löschen, Entities entescapen."""
+    if not html_text:
+        return ""
+    # remove scripts/styles
+    text = re.sub(r"(?is)<script.*?>.*?</script>", " ", html_text)
+    text = re.sub(r"(?is)<style.*?>.*?</style>", " ", text)
+    # strip tags
+    text = re.sub(r"(?s)<[^>]+>", " ", text)
+    # unescape HTML entities and collapse whitespace
+    text = _html_module.unescape(text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
 def parse_email_content(msg) -> dict:
-    """Extract the content, date, sender, of emails.
+    """Robuste Extraktion von E-Mail-Feldern.
 
-    Args:
-        msg: An :class:`email.message.Message` object to parse.
+    Liefert ein Dictionary mit Schlüsseln, die im Rest der App erwartet werden:
+      - subject (str)
+      - sender (str)
+      - date (str)
+      - body (str): bevorzugt text/plain, ansonsten aus HTML konvertiert
+      - html_body (str): originaler HTML-Teil falls vorhanden
 
-    Returns:
-        A dictionary with the following keys:
-            - subject (str): The subject of the email.
-            - from (str): The sender's email address.
-            - to (str): The recipient's email address.
-            - date (str): The date the email was sent.
-            - content (str): The plain text content of the email.
-            - html_content (str, optional): The HTML content of the email, if available.
+    Der Parser überspringt Attachments, decodeiert Charset-sicher und versucht
+    best-effort, lesbaren Text zurückzugeben.
     """
     subject = _decode_header_value(msg.get("Subject", ""))
-    from_ = _decode_header_value(msg.get("From", ""))
-    to = _decode_header_value(msg.get("To", ""))
+    sender = _decode_header_value(msg.get("From", ""))
     date = _decode_header_value(msg.get("Date", ""))
-    content = ""
-    html_content = ""
 
-    # Versuche, den Inhalt aus dem Payload zu extrahieren
+    body = ""
+    html_body = ""
+
     try:
-        if msg.is_multipart():
-            # Bei multipart Nachrichten den Text-Teil finden
+        is_multipart = getattr(msg, "is_multipart", lambda: False)()
+        if is_multipart:
+            # Sammle bevorzugt text/plain und text/html
             for part in msg.walk():
-                # Ignoriere Attachments und andere nicht-Text Teile
-                if part.get_content_maintype() == "text" and part.get("Content-Disposition") is None:
-                    content_type = part.get_content_type()
-                    charset = part.get_content_charset() or "utf-8"
-                    payload = part.get_payload(decode=True)  # type: ignore
-                    if payload is not None:
-                        if content_type == "text/plain":
-                            content = payload.decode(charset, errors="replace")
-                        elif content_type == "text/html":
-                            html_content = payload.decode(charset, errors="replace")
+                try:
+                    cdisp = part.get_content_disposition()
+                except Exception:
+                    cdisp = part.get("Content-Disposition")
+                if cdisp == "attachment":
+                    continue
+
+                ctype = part.get_content_type()
+                try:
+                    payload = part.get_payload(decode=True)
+                except Exception:
+                    try:
+                        payload = part.get_payload()
+                    except Exception:
+                        payload = None
+
+                if payload is None:
+                    continue
+
+                charset = part.get_content_charset() or "utf-8"
+                try:
+                    text = payload.decode(charset, errors="replace") if isinstance(payload, (bytes, bytearray)) else str(payload)
+                except Exception:
+                    text = str(payload)
+
+                if ctype == "text/plain" and not body:
+                    body = text
+                elif ctype == "text/html" and not html_body:
+                    html_body = text
+
+            # fallback: wenn kein text/plain, dann html->text
+            if not body and html_body:
+                body = _html_to_text(html_body)
         else:
-            # Bei einfachen Nachrichten (nicht-multipart) direkt den Payload verwenden
-            payload = msg.get_payload(decode=True)  # type: ignore
-            charset = msg.get_content_charset() or "utf-8"
+            # non-multipart: direkt payload
+            try:
+                payload = msg.get_payload(decode=True)
+            except Exception:
+                try:
+                    payload = msg.get_payload()
+                except Exception:
+                    payload = None
+
             if payload is not None:
-                content = payload.decode(charset, errors="replace")
+                charset = msg.get_content_charset() or "utf-8"
+                try:
+                    body = payload.decode(charset, errors="replace") if isinstance(payload, (bytes, bytearray)) else str(payload)
+                except Exception:
+                    body = str(payload)
+
+            # If content type is html, convert
+            if msg.get_content_type() == "text/html" and body:
+                html_body = body
+                body = _html_to_text(html_body)
     except Exception:
-        pass  # Bei Fehlern beim Dekodieren einfach weitermachen
+        # Best-effort fallback: versuche raw payload
+        try:
+            raw = msg.get_payload(decode=True)
+            if isinstance(raw, (bytes, bytearray)):
+                body = raw.decode("utf-8", errors="replace")
+            else:
+                body = str(raw)
+        except Exception:
+            body = ""
 
     return {
         "subject": subject,
-        "from": from_,
-        "to": to,
+        "sender": sender,
         "date": date,
-        "content": content,
-        "html_content": html_content,
+        "body": body or "",
+        "html_body": html_body or "",
     }
 
 
@@ -320,11 +380,12 @@ def send_email(
     subject: str,
     content: str,
     html_content: str = "",
+    timeout: float = 10.0,
 ) -> bool:
-    """Send an email using SMTP.
+    """Send an email using SMTP with a connection timeout and robust error handling.
 
-    If ``smtp_config`` is None, the function will load the local configuration
-    file via :func:`load_imap_config()` and use the contained ``smtp`` section.
+    If ``smtp_config`` is None or an empty dict, the function will load the local
+    configuration file via :func:`load_imap_config()` and use the contained ``smtp`` section.
 
     Args:
         smtp_config: Optional SMTP configuration dict. When omitted the local
@@ -333,11 +394,15 @@ def send_email(
         subject: The subject of the email.
         content: The plain text content of the email.
         html_content: The HTML content of the email, if available.
+        timeout: Socket timeout in seconds for the SMTP connection.
 
     Returns:
-        True on success. Raises smtplib.SMTPException on failure.
+        True on success, False on failure (no blocking/hangs).
     """
-    if not smtp_config:
+    import socket
+
+    # treat empty dict as missing config (so we load saved config)
+    if smtp_config is None or (isinstance(smtp_config, dict) and len(smtp_config) == 0):
         cfg_all = load_imap_config()
         smtp_cfg = cfg_all.get("smtp") or {}
     else:
@@ -348,6 +413,7 @@ def send_email(
     username = smtp_cfg.get("username")
     password = smtp_cfg.get("password")
     use_tls = bool(smtp_cfg.get("use_tls", True))
+    use_ssl = bool(smtp_cfg.get("use_ssl", False)) or (port == 465)
     from_addr = smtp_cfg.get("from") or username or f"noreply@{host}"
 
     msg = EmailMessage()
@@ -358,19 +424,45 @@ def send_email(
     if html_content:
         msg.add_alternative(html_content, subtype="html")
 
-    # Verbindung und (optionale) Authentifizierung
-    if use_tls:
-        with smtplib.SMTP(host, port) as server:
-            server.ehlo()
-            server.starttls()
+    server = None
+    try:
+        # Choose SSL or plain connection with optional STARTTLS.
+        if use_ssl:
+            server = smtplib.SMTP_SSL(host=host, port=port, timeout=timeout)
             server.ehlo()
             if username and password:
                 server.login(username, password)
             server.send_message(msg)
-    else:
-        with smtplib.SMTP(host, port) as server:
+        else:
+            server = smtplib.SMTP(host=host, port=port, timeout=timeout)
+            server.ehlo()
+            if use_tls:
+                # STARTTLS may fail quickly if server doesn't support it, but we set a timeout.
+                try:
+                    server.starttls()
+                    server.ehlo()
+                except (smtplib.SMTPException, OSError) as e:
+                    # If STARTTLS fails, proceed depending on whether credentials are provided.
+                    # Log and continue to attempt login/send over plain (some servers allow it on submit ports).
+                    pass
             if username and password:
-                server.login(username, password)
+                try:
+                    server.login(username, password)
+                except smtplib.SMTPException:
+                    # authentication failed; raise or return False
+                    return False
             server.send_message(msg)
+    except (smtplib.SMTPException, socket.timeout, ConnectionRefusedError, OSError) as e:
+        # Do not hang — report failure
+        return False
+    finally:
+        if server:
+            try:
+                server.quit()
+            except Exception:
+                try:
+                    server.close()
+                except Exception:
+                    pass
 
     return True
