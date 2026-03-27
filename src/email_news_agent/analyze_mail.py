@@ -29,6 +29,10 @@ def test_ollama_chat():
 
 def analyze_mail(content: str, model: str = 'llama3.2:3b') -> dict:
     """Analyzes and summarizes email content and returns a JSON dict."""
+    if not content or content.strip() == "":
+        raise ValueError(
+            "analyze_mail received empty content; check the email parsing/extraction upstream")
+
     prompt = (f"""Du bist ein Email-Assistent. Du erstellst kurze, präzise
 Zusammenfassungen von eingehenden Emails. Analysiere den folgenden E-Mail-Inhalt und extrahiere strukturierte Informationen.
 
