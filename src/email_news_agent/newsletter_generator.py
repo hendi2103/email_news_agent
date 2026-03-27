@@ -248,13 +248,14 @@ def run_newsletter(
     to_email: str,
     smtp_config: Optional[Dict[str, Any]] = None,
     subject: Optional[str] = None,
+    filter: Optional[str] = "not retrieved",
 ) -> bool:
     """Hole alle noch nicht abgerufenen Mails aus der DB, generiere HTML und sende Newsletter.
 
     Returns True bei erfolgreichem Versand, False wenn keine Mails zu senden waren.
     """
     # retrieve() markiert gefundene Zeilen als retrieved=1
-    records = email_storage.retrieve(filter="not retrieved")
+    records = email_storage.retrieve(filter=filter)
     if not records:
         print("Keine ungelesenen Datensätze in der Datenbank.")
         return False
@@ -282,4 +283,4 @@ def run_newsletter(
 
 if __name__ == "__main__":
     # Beispielaufruf: run_newsletter("
-    run_newsletter("hendrik@ger-ev.de", subject='Test-Newsletter')
+    run_newsletter("hendrik@ger-ev.de", subject='Test-Newsletter', filter="all")
