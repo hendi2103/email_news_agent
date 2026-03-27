@@ -1,7 +1,121 @@
 import imaplib
 import email
-import re
 from email.header import decode_header
+import json
+import stat
+from pathlib import Path
+import getpass
+from typing import Any
+
+
+def _to_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes", "y")
+    return False
+
+
+def _ensure_private_file(path: Path) -> None:
+    """
+    Setzt Dateirechte auf 0o600, wenn Datei zu offen ist.
+    """
+    try:
+        mode = path.stat().st_mode
+    except FileNotFoundError:
+        return
+    # Wenn Group/Other Rechte gesetzt sind, entferne sie
+    if mode & (stat.S_IRWXG | stat.S_IRWXO):
+        try:
+            path.chmod(0o600)
+        except Exception:
+            # best effort; falls chmod fehlschlägt, ignore
+            pass
+
+
+def load_imap_config(path: str | Path | None = None) -> dict:
+    """
+    Lädt die IMAP-Konfiguration aus einer JSON-Datei oder fragt den Benutzer interaktiv
+    und speichert die Daten dann sicher ab.
+
+    Standard-Pfad: ~/.config/email_news_agent/mail_config.json
+
+    Rückgabe: dict mit keys: host (str), port (int), username (str), password (str), use_ssl (bool)
+    """
+    default_path = Path.home() / ".config" / "email_news_agent" / "mail_config.json"
+    cfg_path = Path(path) if path else default_path
+
+    data: dict[str, Any] = {}
+    if cfg_path.exists():
+        # Stelle sicher, dass die Datei private Rechte hat
+        _ensure_private_file(cfg_path)
+        with cfg_path.open("r", encoding="utf-8") as f:
+            try:
+                data = json.load(f)
+            except Exception:
+                raise ValueError(f"Konfigurationsdatei {cfg_path} enthält kein gültiges JSON")
+
+    else:
+        # Interaktive Abfrage
+        print("Keine lokale Mail-Konfiguration gefunden. Bitte IMAP-Einstellungen eingeben.")
+        host = input("IMAP Host (z.B. imap.example.com): ").strip()
+        username = input("Benutzername / E-Mail: ").strip()
+        port_raw = input("Port [993]: ").strip()
+        password = getpass.getpass("Passwort (wird nicht angezeigt): ")
+        use_ssl_raw = input("Use SSL/TLS? [Y/n]: ").strip()
+
+        if not host or not username or not password:
+            raise ValueError("host, username und password sind erforderlich")
+
+        try:
+            port = int(port_raw) if port_raw else 993
+        except ValueError:
+            port = 993
+
+        use_ssl = _to_bool(use_ssl_raw) if use_ssl_raw != "" else True
+
+        data = {
+            "host": host,
+            "port": port,
+            "username": username,
+            "password": password,
+            "use_ssl": use_ssl,
+        }
+
+        # Schreibe Datei (sicherstellen, dass Verzeichnis existiert)
+        cfg_path.parent.mkdir(parents=True, exist_ok=True)
+        # Schreibe zuerst und setze dann die Rechte
+        with cfg_path.open("w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+        try:
+            cfg_path.chmod(0o600)
+        except Exception:
+            pass
+
+    # Typkonversionen / Validierung
+    host = data.get("host")
+    username = data.get("username")
+    password = data.get("password")
+    port_raw = data.get("port", 993)
+    use_ssl = _to_bool(data.get("use_ssl", True))
+
+    if not host or not username or not password:
+        raise ValueError("IMAP-Konfiguration benötigt 'host', 'username' und 'password'.")
+
+    try:
+        port = int(port_raw)
+    except (TypeError, ValueError):
+        port = 993
+
+    return {
+        "host": host,
+        "port": port,
+        "username": username,
+        "password": password,
+        "use_ssl": use_ssl,
+    }
 
 
 def fetch_unseen_emails(imap_config: dict) -> list[dict]:
@@ -35,23 +149,36 @@ def fetch_unseen_emails(imap_config: dict) -> list[dict]:
         mail.select("INBOX")
 
         status, message_ids = mail.search(None, "UNSEEN")
-        if status != "OK" or not message_ids[0]:
+        if status != "OK" or not message_ids or not message_ids[0]:
             return []
 
         emails = []
         for msg_id in message_ids[0].split():
             status, msg_data = mail.fetch(msg_id, "(RFC822)")
-            if status != "OK":
+            if status != "OK" or not msg_data:
                 continue
 
-            raw_email = msg_data[0][1]
+            # Sicherer Zugriff auf die Rohdaten des E-Mails
+            try:
+                # msg_data is typically a list/tuple whose first element is a
+                # tuple like (b'1 (RFC822 {..})', b'<raw bytes>')
+                first = msg_data[0] if isinstance(msg_data, (list, tuple)) and len(msg_data) > 0 else None
+                if not isinstance(first, (list, tuple)) or len(first) < 2:
+                    continue
+                raw_email = first[1]
+            except Exception:
+                continue
+
             msg = email.message_from_bytes(raw_email)
             parsed = parse_email_content(msg)
             emails.append(parsed)
 
         return emails
     finally:
-        mail.logout()
+        try:
+            mail.logout()
+        except Exception:
+            pass
 
 
 def _decode_header_value(value: str) -> str:
