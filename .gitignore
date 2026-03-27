@@ -12,3 +12,4 @@ build/
 /.idea/
 /*.iml
 /docs/repository-open-graph-template.png
+database/
