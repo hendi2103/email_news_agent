@@ -34,10 +34,10 @@ def analyze_mail(content: str, model: str = 'llama3.2:3b') -> dict:
             "analyze_mail received empty content; check the email parsing/extraction upstream")
 
     prompt = (f"""Du bist ein Email-Assistent. Du erstellst kurze, präzise
-Zusammenfassungen von eingehenden Emails. Analysiere den folgenden E-Mail-Inhalt und extrahiere strukturierte Informationen.
-
-Kategorisiere die E-Mail entweder als 'event' oder 'information'.
-Verwende die folgenden Felder, um die Informationen zu extrahieren: 
+Zusammenfassungen von eingehenden Emails um die enthaltenen Informationen für
+einen Newsletter aufzubereiten. Analysiere den folgenden E-Mail-Inhalt und 
+extrahiere strukturierte Informationen. Kategorisiere die E-Mail entweder als 
+'event' oder 'information'. Verwende die folgenden Felder, um die Informationen zu extrahieren: 
 
 
 - category: 'event' oder 'information'
@@ -48,7 +48,7 @@ Verwende die folgenden Felder, um die Informationen zu extrahieren:
 - event_date: das Datum der Veranstaltung, oder null, wenn nicht angegeben
 - event_time: die Uhrzeit der Veranstaltung, oder null, wenn nicht angegeben
 - event_location: der Ort der Veranstaltung, oder null, wenn nicht angegeben
-- link_to_event: ein URL-Link zur Veranstaltung, oder null, wenn nicht angegeben
+- link_to_event: ein oder mehrere URL-Links zur Veranstaltung, getrennt durch Semikolon wenn es mehrere sind, oder null, wenn nicht angegeben
 - registration_information: Angaben zur Anmeldung, Fristen, und Kosten, oder null, wenn nicht angegeben
   
 Email-Inhalt:      
