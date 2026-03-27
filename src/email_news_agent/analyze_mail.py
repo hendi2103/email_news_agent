@@ -44,7 +44,7 @@ Verwende die folgenden Felder, um die Informationen zu extrahieren:
 - original_sender: Name und E-Mail-Adresse de ursprünglichen Absenders, wenn die E-Mail weitergeleitet wurde oder null, wenn nicht weitergeleitet
 - original_sent_date: das ursprüngliche Datum, wenn die E-Mail weitergeleitet wurde, oder null, wenn nicht weitergeleitet
 - heading: eine Überschrift, die den Inhalt der E-Mail zusammenfasst (maximal 80 Zeichen)
-- summary: eine Zusammenfassung des E-Mail-Inhalts. Erwähne hier auch von welcher Institution, Firma oder Initative die Nachricht kommt. (maximal 320 Zeichen)
+- summary: eine Zusammenfassung des E-Mail-Inhalts. (maximal 320 Zeichen)
 - event_date: das Datum der Veranstaltung, oder null, wenn nicht angegeben
 - event_time: die Uhrzeit der Veranstaltung, oder null, wenn nicht angegeben
 - event_location: der Ort der Veranstaltung, oder null, wenn nicht angegeben
