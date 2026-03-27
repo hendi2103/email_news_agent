@@ -78,6 +78,7 @@ def store(data: dict) -> None:
 def retrieve(
     from_date: Optional[date] = None,
     to_date: Optional[date] = None,
+    filter: str = 'not retrieved',
 ) -> list[dict]:
     """Retrieve records from the email_news_storage database.
 
@@ -89,15 +90,27 @@ def retrieve(
                    ``timestamp`` falls on or after this date are returned.
         to_date:   Optional end date (inclusive).  Only records whose
                    ``timestamp`` falls on or before this date are returned.
+        filter:    Controls whether the ``retrieved`` flag is considered. Accepted
+                   values (case-insensitive, '-' or '_' accepted as spaces):
+                     - 'not retrieved' (default): only records with ``retrieved`` = 0
+                       are returned.
+                     - 'all': ignore the ``retrieved`` flag; if no other filters
+                       (from_date/to_date) are provided, this will return all rows.
 
     Returns:
         A list of dictionaries, one per matching record.  If no arguments are
-        given, all records where ``retrieved`` is ``False`` are returned.
-        Returns an empty list when the database or table does not exist.
+        given and the default filter is used, only records where ``retrieved`` is
+        ``False`` are returned. Returns an empty list when the database or table
+        does not exist.
     """
     db = _db_path()
     if not os.path.exists(db):
         return []
+
+    # normalize filter value: allow 'not_retrieved', 'not-retrieved', etc.
+    normalized_filter = (filter or 'not retrieved').strip().lower().replace('_', ' ').replace('-', ' ')
+    if normalized_filter not in ('not retrieved', 'all'):
+        raise ValueError("Invalid filter value for retrieve(); expected 'not retrieved' or 'all'.")
 
     conn = sqlite3.connect(db)
     conn.row_factory = sqlite3.Row
@@ -112,21 +125,18 @@ def retrieve(
         conditions: list[str] = []
         params: list = []
 
-        if from_date is None and to_date is None:
+        # Date range filters
+        if from_date is not None:
+            conditions.append('timestamp >= ?')
+            params.append(from_date.isoformat())
+        if to_date is not None:
+            next_day = (to_date + timedelta(days=1)).isoformat()
+            conditions.append('timestamp < ?')
+            params.append(next_day)
+
+        # retrieved-filter: if 'not retrieved', always require retrieved = 0
+        if normalized_filter == 'not retrieved':
             conditions.append('retrieved = 0')
-        else:
-            if from_date is not None:
-                conditions.append('timestamp >= ?')
-                params.append(from_date.isoformat())
-            if to_date is not None:
-                # ISO timestamp strings are lexicographically comparable, so
-                # using an exclusive upper bound of (to_date + 1 day) reliably
-                # includes every record stored on to_date itself, regardless of
-                # the time component (a plain '<= to_date' would cut off records
-                # with a non-zero time stored on that day).
-                next_day = (to_date + timedelta(days=1)).isoformat()
-                conditions.append('timestamp < ?')
-                params.append(next_day)
 
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ''
         cursor.execute(f'SELECT * FROM mails {where}', params)
