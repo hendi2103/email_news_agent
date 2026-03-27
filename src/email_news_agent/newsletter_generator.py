@@ -16,13 +16,11 @@ Hilfsfunktionen:
 
 from __future__ import annotations
 
-import smtplib
-from email.message import EmailMessage
 from typing import Any, Dict, Iterable, List, Optional
 import html
 import textwrap
 
-from email_news_agent import email_storage
+from email_news_agent import email_storage, email_handler
 
 
 def _is_event_category(category: Optional[str]) -> bool:
@@ -149,66 +147,6 @@ def build_newsletter_html(records: Iterable[Dict[str, Any]]) -> str:
     return "\n".join(parts)
 
 
-def send_newsletter(
-    to_email: str,
-    subject: str,
-    html_body: str,
-    smtp_config: Optional[Dict[str, Any]] = None,
-    from_addr: Optional[str] = None,
-) -> None:
-    """Sendet den HTML-Newsletter per SMTP.
-
-    smtp_config (optional): dict mit keys host, port, username, password, use_tls.
-    Wenn kein smtp_config angegeben ist, wird 'localhost:25' ohne Auth verwendet.
-
-    Args:
-        to_email: Empfängeradresse.
-        subject: Betreffzeile der Mail.
-        html_body: HTML-Inhalt des Newsletters.
-        smtp_config: Optionales SMTP-Konfigurations-Dict.
-        from_addr: Optional explizite Absenderadresse (überschreibt smtp_config['from']).
-
-    Raises:
-        smtplib.SMTPException: Fehler beim SMTP-Versand werden weitergereicht.
-    """
-    cfg = smtp_config or {}
-    host = cfg.get("host", "localhost")
-    port = int(cfg.get("port", 25))
-    username = cfg.get("username")
-    password = cfg.get("password")
-    use_tls = bool(cfg.get("use_tls", False))
-
-    if not from_addr:
-        from_addr = cfg.get("from") or f"noreply@{host}"
-
-    msg = EmailMessage()
-    msg["Subject"] = subject
-    msg["From"] = from_addr
-    msg["To"] = to_email
-    msg.set_content("Dieser Newsletter enthält HTML-Inhalte. Bitte in einem HTML-fähigen Client öffnen.")
-    msg.add_alternative(html_body, subtype="html")
-
-    if use_tls:
-        # STARTTLS
-        with smtplib.SMTP(host, port) as server:
-            server.ehlo()
-            server.starttls()
-            server.ehlo()
-            if username and password:
-                server.login(username, password)
-            server.send_message(msg)
-    else:
-        # Plain SMTP (no TLS)
-        if username and password:
-            # Use SMTP login on plain connection if provided
-            with smtplib.SMTP(host, port) as server:
-                server.login(username, password)
-                server.send_message(msg)
-        else:
-            with smtplib.SMTP(host, port) as server:
-                server.send_message(msg)
-
-
 def run_newsletter(
     to_email: str,
     smtp_config: Optional[Dict[str, Any]] = None,
@@ -229,6 +167,18 @@ def run_newsletter(
         subject = "Newsletter — Neuigkeiten & Veranstaltungen"
 
     print(f"Sende Newsletter an {to_email} (Einträge: {len(records)})...")
-    send_newsletter(to_email, subject, html_body, smtp_config=smtp_config)
+    # Use email_handler.send_email which accepts smtp_config and supports auth & port
+    email_handler.send_email(
+        smtp_config=(smtp_config or {}),
+        to=to_email,
+        subject=subject,
+        content="Dieser Newsletter enthält HTML-Inhalte. Bitte in einem HTML-fähigen Client öffnen.",
+        html_content=html_body,
+    )
     print("Newsletter versendet.")
     return True
+
+
+if __name__ == "__main__":
+    # Beispielaufruf: run_newsletter("
+    run_newsletter("hendrik@ger-ev.de", subject='Test-Newsletter')
