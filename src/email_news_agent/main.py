@@ -93,8 +93,6 @@ def main(model: str = "llama3.2:3b") -> int:
             Überschrift: {heading}
             Zusammenfassung: {summary}
         """))
-    newsletter_generator.run_newsletter("hendrik@ger-ev.de",
-                                        subject='Test-Newsletter')
     print("Fertig.")
     return 0
 
