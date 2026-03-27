@@ -102,8 +102,8 @@ def build_newsletter_html(records: Iterable[Dict[str, Any]]) -> str:
         return textwrap.dedent(f"""
             <article style="margin-bottom:18px;padding-bottom:12px;border-bottom:1px solid #eee;">
               <h3 style="margin:0 0 6px 0;font-size:1.05rem;">{heading}</h3>
-              <div style="color:#666;font-size:0.9rem;margin-bottom:6px;">{('• ' + meta) if meta else ''}</div>
               <div style="margin-bottom:8px;font-size:0.95rem;line-height:1.4;">{summary}</div>
+              {(meta) if meta else ''}
               {link_html}
               {registration_html}
             </article>
