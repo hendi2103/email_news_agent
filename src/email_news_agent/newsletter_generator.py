@@ -2,14 +2,16 @@
 
 Dieses Modul holt analysierte (aber noch nicht als 'retrieved' markierte)
 E-Mail-Datensätze aus der lokalen SQLite-Datenbank, formatiert sie zu einem
-einfachen HTML-Newsletter (unterteilt in 'Neuigkeiten' und
-'Veranstaltungsankündigungen') und versendet den Newsletter per SMTP.
+einfachen HTML-Newsletter sowie einer Plain-Text-Version (unterteilt in
+'Neuigkeiten' und 'Veranstaltungsankündigungen') und versendet den Newsletter
+per SMTP.
 
-Öffentliche Funktion:
+Öffentliche Funktionen:
 - run_newsletter(to_email, smtp_config=None, subject=None) -> bool
 
 Hilfsfunktionen:
 - build_newsletter_html(records)
+- build_newsletter_text(records)
 - send_newsletter(...)
 - _is_event_category(category)
 """
@@ -147,6 +149,92 @@ def build_newsletter_html(records: Iterable[Dict[str, Any]]) -> str:
     return "\n".join(parts)
 
 
+def build_newsletter_text(records: Iterable[Dict[str, Any]]) -> str:
+    """Erzeugt eine Plain-Text-Version des Newsletters.
+
+    Die Einträge werden in zwei Sektionen aufgeteilt: "Neuigkeiten" und
+    "Veranstaltungsankündigungen". Erwartete Feldnamen in `records`:
+      - subject, sender, date, heading, summary, event_date, event_time,
+        event_location, link_to_event, registration_info
+
+    Args:
+        records: Iterierbare von Datensätzen (dictionaries), wie von
+                 ``email_storage.retrieve()`` zurückgegeben.
+
+    Returns:
+        Ein Plain-Text-String, der als alternativer E-Mail-Body verwendet werden kann.
+    """
+    news: List[Dict[str, Any]] = []
+    events: List[Dict[str, Any]] = []
+
+    for r in records:
+        if _is_event_category(r.get("category")):
+            events.append(r)
+        else:
+            news.append(r)
+
+    separator = "-" * 60
+
+    def render_item_text(r: Dict[str, Any]) -> str:
+        """Rendert einen einzelnen Datensatz als Plain-Text-Fragment.
+
+        Args:
+            r: Ein Datensatz mit erwarteten Schlüsseln wie 'heading', 'summary',
+               'body', 'event_date', 'event_time', 'event_location',
+               'link_to_event', 'registration_info'.
+
+        Returns:
+            Ein Plain-Text-String für den Artikel.
+        """
+        heading = str(r.get("heading") or r.get("subject") or "(kein Betreff)")
+        summary = str(r.get("summary") or r.get("body") or "")
+
+        event_meta_parts: List[str] = []
+        if r.get("event_date"):
+            event_meta_parts.append(str(r.get("event_date")))
+        if r.get("event_time"):
+            event_meta_parts.append(str(r.get("event_time")))
+        if r.get("event_location"):
+            event_meta_parts.append(str(r.get("event_location")))
+        meta = " — ".join([p for p in event_meta_parts if p])
+
+        lines = [heading]
+        if summary:
+            lines.append(summary)
+        if meta:
+            lines.append(meta)
+        if r.get("link_to_event"):
+            lines.append(str(r.get("link_to_event")))
+        if r.get("registration_info"):
+            lines.append(f"Anmeldung: {r.get('registration_info')}")
+        lines.append(separator)
+        return "\n".join(lines)
+
+    parts: List[str] = [
+        "Newsletter",
+        "Eine Zusammenfassung der neuesten Nachrichten und Veranstaltungen.",
+        separator,
+    ]
+
+    if news:
+        parts.append("NEUIGKEITEN")
+        parts.append(separator)
+        for r in news:
+            parts.append(render_item_text(r))
+
+    if events:
+        parts.append("")
+        parts.append("VERANSTALTUNGSANKÜNDIGUNGEN")
+        parts.append(separator)
+        for r in events:
+            parts.append(render_item_text(r))
+
+    if not news and not events:
+        parts.append("Keine neuen Inhalte verfügbar.")
+
+    return "\n".join(parts)
+
+
 def run_newsletter(
     to_email: str,
     smtp_config: Optional[Dict[str, Any]] = None,
@@ -163,6 +251,7 @@ def run_newsletter(
         return False
 
     html_body = build_newsletter_html(records)
+    text_body = build_newsletter_text(records)
     if subject is None:
         subject = "Newsletter — Neuigkeiten & Veranstaltungen"
 
@@ -172,7 +261,7 @@ def run_newsletter(
         smtp_config=smtp_config,
         to=to_email,
         subject=subject,
-        content="Dieser Newsletter enthält HTML-Inhalte. Bitte in einem HTML-fähigen Client öffnen.",
+        content=text_body,
         html_content=html_body
     )
     if not success:
