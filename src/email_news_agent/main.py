@@ -95,10 +95,10 @@ def main(model: str = "llama3.2:3b") -> int:
         """))
     print("Fertig.")
 
-send_newsletter = input("Möchtest du jetzt den Newsletter generieren und versenden? (j/n) ").strip().lower()
-if send_newsletter == 'j':
-    newsletter_generator.run_newsletter("hendrik@ger-ev.de", subject='Newsletter Entwurf')
+    send_newsletter = input("Möchtest du jetzt den Newsletter generieren und versenden? (j/n) ").strip().lower()
 
+    if send_newsletter == 'j':
+        newsletter_generator.run_newsletter("hendrik@ger-ev.de", subject='Newsletter Entwurf')
 
 
 if __name__ == "__main__":
