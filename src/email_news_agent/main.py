@@ -4,7 +4,7 @@ import sys
 import textwrap
 from typing import Any
 
-from email_news_agent import email_handler, analyze_mail, email_storage
+from email_news_agent import email_handler, analyze_mail, email_storage, newsletter_generator
 
 
 def _shorten(text: str | None, limit: int) -> str | None:
@@ -82,6 +82,8 @@ def main(model: str = "llama3.2:3b") -> int:
         except Exception as e:
             print(f"Fehler beim Speichern: {e}")
 
+
+
         # Console summary
         heading = _shorten(analysis.get("heading"), 80)
         summary = _shorten(analysis.get("summary"), 320)
@@ -91,7 +93,8 @@ def main(model: str = "llama3.2:3b") -> int:
             Überschrift: {heading}
             Zusammenfassung: {summary}
         """))
-
+    newsletter_generator.run_newsletter("hendrik@ger-ev.de",
+                                        subject='Test-Newsletter')
     print("Fertig.")
     return 0
 
