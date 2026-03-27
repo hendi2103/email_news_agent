@@ -48,7 +48,7 @@ extrahiere strukturierte Informationen. Kategorisiere die E-Mail entweder als
 - event_date: das Datum der Veranstaltung, oder null, wenn nicht angegeben
 - event_time: die Uhrzeit der Veranstaltung, oder null, wenn nicht angegeben
 - event_location: der Ort der Veranstaltung, oder null, wenn nicht angegeben
-- link_to_event: ein oder mehrere URL-Links zur Veranstaltung, getrennt durch Semikolon wenn es mehrere sind, oder null, wenn nicht angegeben
+- link_to_event: ein oder mehrere URL-Links zur Veranstaltung, getrennt durch Leerzeichen wenn es mehrere sind, entferne alle Zeichen die nicht zur URL gehören, oder null, wenn nicht angegeben
 - registration_information: Angaben zur Anmeldung, Fristen, und Kosten, oder null, wenn nicht angegeben
   
 Email-Inhalt:      

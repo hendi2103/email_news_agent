@@ -96,8 +96,8 @@ def build_newsletter_html(records: Iterable[Dict[str, Any]]) -> str:
         link_html = ""
         raw_links = r.get("link_to_event")
         if raw_links:
-            # Sicherstellen, dass wir einen String haben, dann auf ';' splitten
-            links = [s.strip() for s in str(raw_links).split(";") if s.strip()]
+            # Sicherstellen, dass wir einen String haben, dann auf ' ' splitten
+            links = [s.strip() for s in str(raw_links).split(" ") if s.strip()]
             if links:
                 list_items = []
                 for link in links:
